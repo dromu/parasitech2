@@ -7,6 +7,7 @@ import os
 import shutil
 from coordenates import *
 from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
 
 def run(img_dir, labels):
 
@@ -140,9 +141,29 @@ def run(img_dir, labels):
 
                                 text_position = (x0,y2+20) # Coordenadas
                                 draw.text(text_position, str(maxPor)+" %", fill="black", font=font)
-                                
-                                resized_img.save("resultado.jpg")
 
+                                overlay_image = Image.open("parasitechResultado.png")
+                                overlay_image = overlay_image.resize((189, 112)) 
+                                overlay_width, overlay_height = overlay_image.size
+
+                                base_width, base_height = resized_img.size
+                                position = (base_width - overlay_width, base_height - overlay_height)
+
+                                resized_img.paste(overlay_image, position, overlay_image)
+
+                                # Guardar la imagen en un archivo temporal en memoria
+                                img_bytes = BytesIO()
+                                resized_img.save(img_bytes, format="PNG")
+                                img_bytes.seek(0) 
+
+                                st.download_button(
+                                label="Descargar imagen",
+                                data=img_bytes,
+                                file_name="Parasitech.png",
+                                mime="image/png"
+                                )
+                                
+                          
                 
 
 

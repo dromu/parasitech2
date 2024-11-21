@@ -5,6 +5,8 @@ from streamlit_img_label.manage import ImageManager, ImageDirManager
 from prediction import predictParasite
 import os 
 import shutil
+from coordenates import *
+from PIL import Image, ImageDraw, ImageFont
 
 def run(img_dir, labels):
 
@@ -72,7 +74,7 @@ def run(img_dir, labels):
         img_file_name   = idm.get_image(st.session_state["image_index"])
         img_path        = os.path.join(img_dir, img_file_name)
 
-        st.write(img_path)
+        
         
 
     im              = ImageManager(img_path, sliderContour)
@@ -89,6 +91,9 @@ def run(img_dir, labels):
         st.session_state.predecir = True
 
         if rects:
+
+            coord = calculate_rect_coords(rects)
+            
             preview_imgs = im.init_annotation(rects)
 
             # Número de columnas
@@ -111,15 +116,42 @@ def run(img_dir, labels):
                         with column:
                             preview_imgs[idx_imagen][0].thumbnail((200, 200))  # Redimensionar la imagen
                             column.image(preview_imgs[idx_imagen][0])
-                        
-
-            
+                                    
                             if st.session_state.predecir:
-                                    pred_class,pred_idx,probs = predictParasite(preview_imgs[idx_imagen][0],parasite)
-                                    maxPor= round(probs.max().item() * 100,2)
-                                    st.write(pred_class,maxPor)
+                                pred_class,pred_idx,probs = predictParasite(preview_imgs[idx_imagen][0],parasite)
+                                maxPor= round(probs.max().item() * 100,2)
+                                st.write(pred_class,maxPor)
+
+                                draw = ImageDraw.Draw(resized_img)
+                                box_coords = coord[idx_imagen]
+                                x1, y1,x2,y2 = box_coords
+                                draw.rectangle(box_coords, outline="blue", width=3)
+
+                                try:
+                                    font = ImageFont.truetype("DejaVuSans.ttf", 15) # Carga una fuente (puedes cambiarla)
+                                except IOError:
+                                    font = ImageFont.load_default()
+
+                                x0 = int((x2+x1)/2)-30
+                                
+
+                                text_position = (x0,y2)  # Coordenadas (x, y)
+                                draw.text(text_position, pred_class, fill="black", font=font)
+
+                                text_position = (x0,y2+20) # Coordenadas
+                                draw.text(text_position, str(maxPor)+" %", fill="black", font=font)
+                                
+                                resized_img.save("resultado.jpg")
+
+                
+
+
+
                         
             st.session_state.predecir = False
+
+
+            
 
 if __name__ == "__main__":
     custom_labels = ["", "dog", "cat"]

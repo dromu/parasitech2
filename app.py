@@ -5,6 +5,8 @@ from streamlit_img_label.manage import ImageManager, ImageDirManager
 from prediction import predictParasite
 
 def run(img_dir, labels):
+
+    st.sidebar.image("parasitechLogo.png")
     # Eliminar configuración obsoleta
     idm = ImageDirManager(img_dir)
 
@@ -95,7 +97,6 @@ def run(img_dir, labels):
         next_annotate_file()
 
 
-
     if rects:
         st.button(label="Save", on_click=annotate)
         preview_imgs = im.init_annotation(rects)
@@ -128,12 +129,11 @@ def run(img_dir, labels):
 if __name__ == "__main__":
     custom_labels = ["", "dog", "cat"]
 
-    st.set_page_config(layout="wide", page_title="Visualización de imágenes", page_icon="🖼️")
+    st.set_page_config(layout="wide", page_title="Parasitech", page_icon="🖼️")
     uploaded_file = st.file_uploader("Selecciona una imagen", type=["png", "jpg", "jpeg"])
 
     # print(uploaded_file)
 
     # run(uploaded_file, custom_labels)
-
 
     run("img_dir", custom_labels)

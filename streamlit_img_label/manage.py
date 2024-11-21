@@ -159,8 +159,8 @@ class ImageDirManager:
 
     def get_all_files(self, allow_types=["png", "jpg", "jpeg"]):
         allow_types += [i.upper() for i in allow_types]
-        # mask = ".*\.[" + "|".join(allow_types) + "]"
-        mask = r".*\.\[" + "|".join(allow_types) + "]"
+        mask = ".*\.[" + "|".join(allow_types) + "]"
+        # mask = r".*\.\[" + "|".join(allow_types) + "]"
         self._files = [
             file for file in os.listdir(self._dir_name) if re.match(mask, file)
         ]

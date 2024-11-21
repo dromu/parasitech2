@@ -18,6 +18,7 @@ def run(img_dir, labels):
         idm.set_all_files(st.session_state["files"])
         idm.set_annotation_files(st.session_state["annotation_files"])
     
+    
     def refresh():
         st.session_state["files"] = idm.get_all_files()
         st.session_state["annotation_files"] = idm.get_exist_annotation_files()
@@ -51,12 +52,12 @@ def run(img_dir, labels):
         st.session_state["image_index"] = file_index
 
     # Sidebar: show status
-    n_files = len(st.session_state["files"])
-    n_annotate_files = len(st.session_state["annotation_files"])
+    # n_files = len(st.session_state["files"])
+    # n_annotate_files = len(st.session_state["annotation_files"])
 
-    st.sidebar.write("Total files:", n_files)
-    st.sidebar.write("Total annotated files:", n_annotate_files)
-    st.sidebar.write("Remaining files:", n_files - n_annotate_files)
+    # st.sidebar.write("Total files:", n_files)
+    # st.sidebar.write("Total annotated files:", n_annotate_files)
+    # st.sidebar.write("Remaining files:", n_files - n_annotate_files)
 
     parasite = st.sidebar.radio("Especie:", ("Protozoo", "Helminto"))
 

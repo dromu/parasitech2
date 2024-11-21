@@ -24,14 +24,20 @@ class ImageManager:
     def __init__(self, filename,umbral):
         """initiate module"""
         self._filename = filename
-        self._img = Image.open(filename)
+        self.umbral  = umbral
         
-        self._img = countourCircle(self._img, umbral)
 
         self._rects = []
         self._load_rects()
         self._resized_ratio_w = 1
         self._resized_ratio_h = 1
+
+        self.initProcess()
+
+    def initProcess(self):
+        self._img = Image.open(self._filename)
+        self._img = countourCircle(self._img, self.umbral)
+
 
     def _load_rects(self):
         rects_xml = read_xml(self._filename)

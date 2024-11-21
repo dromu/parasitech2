@@ -5,10 +5,6 @@ from streamlit_img_label.manage import ImageManager, ImageDirManager
 from prediction import predictParasite
 
 def run(img_dir, labels):
-
-    st.sidebar.image("parasitechLogo.png")
-
-
     # Eliminar configuración obsoleta
     idm = ImageDirManager(img_dir)
 

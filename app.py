@@ -51,14 +51,9 @@ def run(img_dir, labels):
         file_index = st.session_state["files"].index(st.session_state["file"])
         st.session_state["image_index"] = file_index
 
-    # Sidebar: show status
-    # n_files = len(st.session_state["files"])
-    # n_annotate_files = len(st.session_state["annotation_files"])
 
-    # st.sidebar.write("Total files:", n_files)
-    # st.sidebar.write("Total annotated files:", n_annotate_files)
-    # st.sidebar.write("Remaining files:", n_files - n_annotate_files)
-
+    print("texto de verificiacion" )
+    
     parasite = st.sidebar.radio("Especie:", ("Protozoo", "Helminto"))
 
     sliderContour = st.sidebar.slider("Selección de umbral:",0,255,90)

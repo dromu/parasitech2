@@ -56,35 +56,36 @@ def run(img_dir, labels):
         st.session_state.predecir = True
 
     if rects:
-        
         preview_imgs = im.init_annotation(rects)
 
-        for i, prev_img in enumerate(preview_imgs):
-            prev_img[0].thumbnail((200, 200))
+        # Número de columnas
+        columns = 3
+        cantidad = len(preview_imgs)
+        filas = cantidad // columns
+        if cantidad % columns != 0:
+            filas += 1
 
-            col1, col2 = st.columns(2)
-            with col1:
-                col1.image(prev_img[0])
+        # Crear las columnas una sola vez
+        col1, col2, col3 = st.columns(columns)
 
-                if st.session_state.predecir:
-
-                    pred_class,pred_idx,probs = predictParasite(prev_img[0],parasite)
-                    maxPor= round(probs.max().item() * 100,2)
-                    st.write(pred_class,maxPor)
+        # Iterar sobre las filas
+        for fila in range(filas):
+            # Asignar las imágenes a las columnas en cada fila
+            for col_idx, column in enumerate([col1, col2, col3]):
+                # Calcular el índice de la imagen correspondiente
+                idx_imagen = fila * columns + col_idx
+                if idx_imagen < cantidad:
+                    with column:
+                        preview_imgs[idx_imagen][0].thumbnail((200, 200))  # Redimensionar la imagen
+                        column.image(preview_imgs[idx_imagen][0])
                     
-            
-            with col2:
-                default_index = 0
-                if prev_img[1]:
-                    default_index = labels.index(prev_img[1])
 
-                st.write("hola mundo")
-
-                select_label = col2.selectbox(
-                    "Label", labels, key=f"label_{i}", index=default_index
-                )
-                im.set_annotation(i, select_label)
-            
+           
+                        if st.session_state.predecir:
+                                pred_class,pred_idx,probs = predictParasite(preview_imgs[idx_imagen][0],parasite)
+                                maxPor= round(probs.max().item() * 100,2)
+                                st.write(pred_class,maxPor)
+                    
         st.session_state.predecir = False
 
 if __name__ == "__main__":

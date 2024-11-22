@@ -99,14 +99,8 @@ def run():
     img_path = get_image_path(opcion, uploaded_file, img_dir, idm)
     
     max_height, max_width = (800, 600) if img_path == "staticImages/bienvenidos.jpg" else (1000, 1000)
-
-    # Crear el objeto ImageManager una sola vez
     im = ImageManager(img_path, slider_contour)
-
-    # Redimensionar la imagen
     resized_img = im.resizing_img(max_height, max_width)
-
-    # Etiquetar la imagen con rectángulos
     rects = st_img_label(resized_img, box_color="blue", rects=im.get_resized_rects())
 
     if st.sidebar.button("Predecir") and rects:

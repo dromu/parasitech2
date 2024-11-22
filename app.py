@@ -55,7 +55,6 @@ def run(img_dir, labels):
         
         else: 
             img_path = "parasitechLogo.png"
-            sliderContour = 10
 
     elif opcion_seleccionada == "Galeria":
         
@@ -77,7 +76,7 @@ def run(img_dir, labels):
         img_path        = os.path.join(img_dir, img_file_name)
 
         
-    
+        
 
     im              = ImageManager(img_path, sliderContour)
     resized_img     = im.resizing_img(max_height=1000,max_width=1000)
@@ -157,14 +156,19 @@ def run(img_dir, labels):
                                 resized_img.save(img_bytes, format="PNG")
                                 img_bytes.seek(0) 
 
-                                st.download_button(
+            st.download_button(
                                 label="Descargar imagen",
                                 data=img_bytes,
                                 file_name="Parasitech.png",
                                 mime="image/png"
-                                )
+                                )                    
                                 
-                              
+                          
+                
+
+
+
+                        
             st.session_state.predecir = False
 
 

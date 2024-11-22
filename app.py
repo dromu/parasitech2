@@ -3,7 +3,6 @@ import os
 from streamlit_img_label import st_img_label
 from streamlit_img_label.manage import ImageManager, ImageDirManager
 from prediction import predictParasite
-from coordenates import calculate_rect_coords
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import shutil
@@ -66,6 +65,17 @@ def display_predictions(preview_imgs, parasite, resized_img, coord):
     img_bytes.seek(0)
 
     st.download_button("Descargar imagen", data=img_bytes, file_name="parasiTech.png", mime="image/png")
+def calculate_rect_coords(rectangles):
+    rect_coords = []
+    
+    for rect in rectangles:
+        left = int(rect['left'])
+        top = int(rect['top'])
+        right = int(left + rect['width'])  # Punto final en X
+        bottom = int(top + rect['height'] ) # Punto final en Y
+        rect_coords.append( (left, top, right, bottom) )
+        
+    return rect_coords
 
 def run():
     img_dir = "imgExamples"
@@ -107,6 +117,31 @@ def run():
         coord = calculate_rect_coords(rects)
         preview_imgs = im.init_annotation(rects)
         display_predictions(preview_imgs, parasite, resized_img, coord)
+
+
+    # Agregar un pie de página
+    footer = """
+    <style>
+        .footer {
+            position: relative ;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background-color: lightgray;
+            text-align: center;
+            padding: 0px;
+        }
+    </style>
+    <div class="footer">
+        <p>© 2024 ParasiTech - Todos los derechos reservados.<br>
+        Desarrollado por 
+        <a href="https://orcid.org/0009-0001-9428-4192" target="_blank">Jader Muñoz</a>, 
+        <a href="https://orcid.org/0000-0003-3538-6313" target="_blank">Reinel Vasquez</a>, y
+        <a href="https://orcid.org/0000-0003-1548-942X" target="_blank">Rubiel Vargas</a><br>
+        Financiado por la "Implementación del Proyecto Jóvenes Investigadores e Innovadores en el Departamento del Cauca" BPIN 2020000100043</p>
+    </div>
+    """
+    st.markdown(footer, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     st.set_page_config(layout="wide", page_title="Parasitech", page_icon="🖼️")

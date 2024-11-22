@@ -34,7 +34,7 @@ def get_image_path(option, uploaded_file, img_dir, idm):
         reset_temp_dir()
         img_file_name = idm.get_image(st.session_state["image_index"])
         return os.path.join(img_dir, img_file_name)
-    return "staticImages/parasitechLogo.png"
+    return "staticImages/bienvenidos.jpg"
 
 def display_predictions(preview_imgs, parasite, resized_img, coord):
     st.session_state.predecir = True
@@ -98,12 +98,15 @@ def run():
 
     img_path = get_image_path(opcion, uploaded_file, img_dir, idm)
     
-    if img_path == "staticImages/parasitechLogo.png":
-        slider_contour = 120
+    max_height, max_width = (800, 600) if img_path == "staticImages/bienvenidos.jpg" else (1000, 1000)
 
-
+    # Crear el objeto ImageManager una sola vez
     im = ImageManager(img_path, slider_contour)
-    resized_img = im.resizing_img(max_height=1000, max_width=1000)
+
+    # Redimensionar la imagen
+    resized_img = im.resizing_img(max_height, max_width)
+
+    # Etiquetar la imagen con rectángulos
     rects = st_img_label(resized_img, box_color="blue", rects=im.get_resized_rects())
 
     if st.sidebar.button("Predecir") and rects:

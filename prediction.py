@@ -6,11 +6,11 @@ from pathlib import PosixPath
 
 
 # Cargar el modelo globalmente para evitar cargarlo repetidamente
-pathModel = Path("efficiennetB5_90perce.pkl")
+pathModel = Path("models/efficiennetB5_90perce.pkl")
 learn = load_learner(pathModel)
 
 
-pathModelH = Path("vit_small_patch16_224_Helmintos.pkl")
+pathModelH = Path("models/vit_small_patch16_224_Helmintos.pkl")
 learnHel = load_learner(pathModelH)
 
 def predictParasite( img,parasite): 

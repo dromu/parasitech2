@@ -1,0 +1,14 @@
+# Pesos de los modelos: se descargan desde Hugging Face Hub (ver prediction.py)
+models/
+*.pkl
+*.pth
+
+# Python
+__pycache__/
+*.pyc
+
+# Archivos temporales de la app
+temp_files/
+
+# Secrets locales de Streamlit
+.streamlit/secrets.toml

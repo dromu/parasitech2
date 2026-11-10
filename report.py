@@ -11,7 +11,6 @@ BOX_COLOR = (224, 17, 95)         # #E0115F
 BAND_BG = (0, 0, 0)
 TEXT = (255, 255, 255)
 MUTED = (170, 170, 170)
-WATERMARK = "staticImages/parasitechWatermark.png"
 LOGO_TRANSPARENT = "staticImages/parasitechLogo.png"
 WATERMARK_OPACITY = 0.22      # opacidad de la marca de agua central (0-1)
 WATERMARK_WIDTH = 0.62        # ancho de la marca de agua como fracción de la imagen
@@ -175,12 +174,8 @@ def _text_w(draw, text, font):
     return b[2] - b[0]
 
 
-def apply_watermark(img: Image.Image, boxes=()) -> Image.Image:
-    """Marca de agua: logo de ParasiTech semitransparente sobre la imagen.
-
-    Se coloca en el centro, o un poco más arriba/abajo si así tapa menos los
-    recuadros de los hallazgos.
-    """
+def apply_watermark(img: Image.Image) -> Image.Image:
+    """Marca de agua: logo de ParasiTech semitransparente, siempre centrado."""
     logo = Image.open(LOGO_TRANSPARENT).convert("RGBA")
     bbox = logo.getchannel("A").getbbox()
     if bbox:
@@ -189,29 +184,10 @@ def apply_watermark(img: Image.Image, boxes=()) -> Image.Image:
     w = int(W * WATERMARK_WIDTH)
     logo = logo.resize((w, int(logo.height * w / logo.width)), Image.LANCZOS)
     logo.putalpha(logo.getchannel("A").point(lambda a: int(a * WATERMARK_OPACITY)))
-    x = (W - logo.width) // 2
-
-    def overlap(y):
-        total = 0
-        for x0, y0, x1, y1 in boxes:
-            ix = max(0, min(x1, x + logo.width) - max(x0, x))
-            iy = max(0, min(y1, y + logo.height) - max(y0, y))
-            total += ix * iy
-        return total
-
-    candidates = [(H - logo.height) // 2, int(H * 0.30) - logo.height // 2,
-                  int(H * 0.70) - logo.height // 2]
-    y = min(candidates, key=lambda c: (overlap(c), abs(c - candidates[0])))
+    x, y = (W - logo.width) // 2, (H - logo.height) // 2
     base = img.convert("RGBA")
     base.alpha_composite(logo, (x, y))
     return base.convert("RGB")
-
-
-def _logo():
-    """Logo de ParasiTech recortado a su contenido (recuadro blanco con la marca)."""
-    mark = Image.open(WATERMARK).convert("RGBA")
-    bbox = mark.getchannel("A").point(lambda a: 255 if a > 10 else 0).getbbox()
-    return mark.crop(bbox) if bbox else mark
 
 
 # --------------------------------------------------------------------------- #
@@ -222,7 +198,7 @@ def render_report(image: Image.Image, items, parasite: str, min_conf: float) -> 
 
     items: [{"n", "full_box", "label", "confidence"}] ya filtrados para el reporte.
     """
-    img = apply_watermark(image.convert("RGB"), [it["full_box"] for it in items])
+    img = apply_watermark(image.convert("RGB"))
     W, H = img.size
     draw = ImageDraw.Draw(img)
 
@@ -240,13 +216,6 @@ def render_report(image: Image.Image, items, parasite: str, min_conf: float) -> 
         draw.ellipse((cx - r_badge, cy - r_badge, cx + r_badge, cy + r_badge),
                      fill=BOX_COLOR, outline=(255, 255, 255), width=max(2, lw // 2))
         draw.text((cx, cy), str(it["n"]), fill=TEXT, font=F["bold"], anchor="mm")
-
-    # Logo de ParasiTech (una sola vez), dentro de la imagen en la esquina inferior derecha
-    logo = _logo()
-    wm_w = max(140, int(W * 0.15))
-    wm = logo.resize((wm_w, int(logo.height * wm_w / logo.width)), Image.LANCZOS)
-    margin = int(W * 0.015)
-    img.paste(wm, (W - wm.width - margin, H - wm.height - margin), wm)
 
     # ---- Banda negra inferior: leyenda compacta en línea ---------------------
     ls = max(13, int(W * 0.0115))          # tamaño de letra de la leyenda

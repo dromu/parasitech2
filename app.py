@@ -9,7 +9,8 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from contorCircle import countourCircle
-from prediction import get_learner, predict_topk
+from detection import detect_candidates
+from prediction import get_learner, predict_batch
 from streamlit_img_label import st_img_label
 from streamlit_img_label.manage import ImageManager
 
@@ -25,10 +26,13 @@ MAX_PROCESS_SIDE = 2000      # lado máximo de la imagen antes de procesarla
 CANVAS_MAX = (720, 960)      # alto y ancho máximos del lienzo de anotación
 LOW_CONFIDENCE = 60.0        # por debajo de este % se marca para revisión
 BOX_COLOR = "#E0115F"
+BATCH_SIZE = 4               # regiones por lote al clasificar
+SENSITIVITY = {"Baja": 0.2, "Media": 0.5, "Alta": 0.8}
 
 SPECIES = {
-    "Protozoo": {"model": "EfficientNet-B5", "icon": "🦠"},
-    "Helminto": {"model": "ViT-Small · patch16 · 224", "icon": "🪱"},
+    # size: diámetro típico del objeto como % del lado de la imagen (mín, máx)
+    "Protozoo": {"model": "EfficientNet-B5", "icon": "🦠", "size": (1.2, 10.0)},
+    "Helminto": {"model": "ViT-Small · patch16 · 224", "icon": "🪱", "size": (3.0, 30.0)},
 }
 
 st.set_page_config(
@@ -74,6 +78,12 @@ CSS = """
 .pt-badge-ok {background: #E6F4EA; color: #1E6B35;}
 .pt-badge-warn {background: #FFF4E5; color: #8A4B00;}
 .pt-alt {font-size: .85rem; color: #5d5566; margin: .1rem 0;}
+.pt-findings {font-size: .95rem; margin: .2rem 0 1rem 0; color: #3b3342;}
+.pt-finding {
+    display: inline-block; margin: .25rem .35rem .25rem 0; padding: .3rem .75rem;
+    border-radius: 999px; background: #F4EEF7; border: 1px solid #E2D6E8; color: #3b1d40;
+}
+.pt-finding-conf {font-size: .78rem; color: #7a6c83; margin-left: .25rem;}
 .pt-footer {
     margin-top: 2.5rem; padding: 1.1rem 0 .4rem 0; border-top: 1px solid #E7E0EC;
     text-align: center; font-size: .82rem; color: #6b6275; line-height: 1.6;
@@ -92,6 +102,21 @@ def processed_image(path: str, threshold: int) -> Image.Image:
     img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
     img.thumbnail((MAX_PROCESS_SIDE, MAX_PROCESS_SIDE))
     return countourCircle(img, threshold)
+
+
+@st.cache_data(max_entries=16, show_spinner=False)
+def auto_regions(path, threshold, size_range, sensitivity, max_regions):
+    """Regiones candidatas detectadas automáticamente, en coordenadas de la imagen procesada."""
+    img = processed_image(path, threshold)
+    cands = detect_candidates(
+        img, size_range[0] / 100, size_range[1] / 100,
+        sensitivity=sensitivity, max_regions=max_regions,
+    )
+    return [
+        {"left": c.box[0], "top": c.box[1], "width": c.box[2] - c.box[0],
+         "height": c.box[3] - c.box[1], "label": ""}
+        for c in cands
+    ]
 
 
 class CachedImageManager(ImageManager):
@@ -204,8 +229,30 @@ def sidebar():
         )
 
     st.sidebar.markdown("##### 3 · Análisis")
+    mode = st.sidebar.radio(
+        "Modo", ["Automático", "Manual"], horizontal=True, label_visibility="collapsed",
+        captions=["Detecta las estructuras", "Tú marcas las regiones"],
+    )
+    default_size = SPECIES[parasite]["size"]
+    with st.sidebar.expander("🎯 Ajustes de detección", expanded=False):
+        sens = st.select_slider(
+            "Sensibilidad", list(SENSITIVITY), value="Media",
+            help="Alta encuentra más estructuras, pero también más detritus.",
+            disabled=mode != "Automático",
+        )
+        size_range = st.slider(
+            "Tamaño de los objetos (% de la imagen)", 0.5, 40.0, default_size, step=0.5,
+            key=f"size_{parasite}", disabled=mode != "Automático",
+            help="Diámetro aproximado de los huevos o quistes que se buscan.",
+        )
+        max_regions = st.slider("Máximo de regiones", 5, 40, 20, disabled=mode != "Automático")
+        min_conf = st.slider(
+            "Confianza mínima para reportar", 0, 100, 50, step=5, format="%d%%",
+            help="Las regiones por debajo de este valor se muestran aparte como descartadas.",
+        )
+
     analyze = st.sidebar.button(
-        "🔍  Analizar regiones", type="primary", use_container_width=True,
+        "🔍  Analizar muestra", type="primary", use_container_width=True,
         disabled=img_path is None,
     )
     if st.sidebar.button("Limpiar resultados", use_container_width=True):
@@ -215,7 +262,11 @@ def sidebar():
         "Herramienta de apoyo. Los resultados deben ser confirmados por personal "
         "de laboratorio calificado."
     )
-    return parasite, img_path, img_name, threshold, analyze
+    settings = {
+        "mode": mode, "sensitivity": SENSITIVITY[sens], "size_range": tuple(size_range),
+        "max_regions": max_regions, "min_conf": float(min_conf),
+    }
+    return parasite, img_path, img_name, threshold, analyze, settings
 
 
 def header(parasite):
@@ -224,8 +275,8 @@ def header(parasite):
         f"""
         <div class="pt-hero">
           <h1>Análisis parasitológico asistido por IA</h1>
-          <p>Marca las estructuras sospechosas en la imagen del microscopio y obtén
-             una clasificación automática con su nivel de confianza.</p>
+          <p>Detecta automáticamente huevos y quistes en la imagen del microscopio y
+             obtén su clasificación con el nivel de confianza.</p>
           <span class="pt-chip">{info['icon']} {parasite}</span>
           <span class="pt-chip">🧠 {info['model']}</span>
         </div>
@@ -240,8 +291,8 @@ def empty_state():
                                "cada uno usa un modelo especializado."),
         ("2", "Carga la imagen", "Sube una foto del microscopio o prueba con una imagen "
                                  "de la <b>galería de ejemplos</b>."),
-        ("3", "Marca y analiza", "Dibuja un recuadro sobre cada estructura y pulsa "
-                                 "<b>Analizar regiones</b>."),
+        ("3", "Analiza", "Pulsa <b>Analizar muestra</b>: la app detecta las estructuras y "
+                         "las clasifica. Puedes corregir las regiones si hace falta."),
     ]
     cols = st.columns(3)
     for col, (n, title, text) in zip(cols, steps):
@@ -268,73 +319,119 @@ def clamp_rects(rects, width, height):
 def run_analysis(im, rects, parasite, resized_img, sig):
     rects = clamp_rects(rects, resized_img.width, resized_img.height)
     if not rects:
-        st.warning("Los recuadros están fuera de la imagen. Muévelos sobre la muestra.", icon="✏️")
+        st.warning("No hay regiones dentro de la imagen para analizar.", icon="✏️")
         return
     boxes = [rect_to_box(r) for r in rects]
     crops = [c for c, _ in im.init_annotation([dict(r) for r in rects])]
 
+    preds = []
+    progress = st.progress(0.0, text="Clasificando regiones…")
+    for start in range(0, len(crops), BATCH_SIZE):
+        preds += predict_batch(crops[start:start + BATCH_SIZE], parasite, k=3)
+        done = min(start + BATCH_SIZE, len(crops))
+        progress.progress(done / len(crops), text=f"Clasificando región {done} de {len(crops)}…")
+    progress.empty()
+
     results = []
-    progress = st.progress(0.0, text="Analizando regiones…")
-    for i, (crop, box) in enumerate(zip(crops, boxes), start=1):
-        top = predict_topk(crop, parasite, k=3)
+    for crop, box, top in zip(crops, boxes, preds):
         label, prob = top[0]
         results.append({
-            "n": i, "box": box, "crop": crop, "label": label,
+            "box": box, "crop": crop, "label": label,
             "confidence": round(prob * 100, 2),
             "alternatives": [(l, round(p * 100, 2)) for l, p in top[1:]],
         })
-        progress.progress(i / len(rects), text=f"Analizando región {i} de {len(rects)}…")
-    progress.empty()
+    # Numeración por confianza: la región 1 es la más segura
+    results.sort(key=lambda r: r["confidence"], reverse=True)
+    for i, r in enumerate(results, start=1):
+        r["n"] = i
 
     st.session_state["results"] = {
-        "sig": sig, "parasite": parasite, "items": results,
-        "annotated": annotate(resized_img, results),
+        "sig": sig, "parasite": parasite, "items": results, "image": resized_img,
     }
 
 
-def show_results(res, img_name, stale):
+def result_card(r, min_conf):
+    with st.container(border=True):
+        c_img, c_txt = st.columns([1, 1.6], vertical_alignment="center")
+        c_img.image(r["crop"], use_column_width=True)
+        with c_txt:
+            badge = (
+                '<span class="pt-badge-ok">Confianza alta</span>'
+                if r["confidence"] >= max(LOW_CONFIDENCE, min_conf)
+                else '<span class="pt-badge-warn">Revisar</span>'
+            )
+            st.markdown(
+                f'<div class="pt-region">Región {r["n"]}</div>'
+                f'<div class="pt-label">{r["label"]}</div>{badge}',
+                unsafe_allow_html=True,
+            )
+        st.progress(min(r["confidence"] / 100, 1.0), text=f"Confianza: {r['confidence']:.1f}%")
+        if r["alternatives"]:
+            alts = " · ".join(f"{l} ({p:.1f}%)" for l, p in r["alternatives"])
+            st.markdown(f'<div class="pt-alt">Otras opciones: {alts}</div>', unsafe_allow_html=True)
+
+
+def show_results(res, img_name, stale, min_conf):
     items = res["items"]
+    reported = [r for r in items if r["confidence"] >= min_conf]
+    discarded = [r for r in items if r["confidence"] < min_conf]
+
     st.subheader("Resultados")
     if stale:
         st.warning(
-            "Los recuadros o los ajustes cambiaron desde el último análisis. "
-            "Pulsa **Analizar regiones** para actualizar los resultados.", icon="⚠️",
+            "Las regiones o los ajustes cambiaron desde el último análisis. "
+            "Pulsa **Analizar muestra** para actualizar los resultados.", icon="⚠️",
         )
 
-    confs = [r["confidence"] for r in items]
-    low = sum(c < LOW_CONFIDENCE for c in confs)
+    # Hallazgos: clases reportadas con su número de regiones
+    if reported:
+        counts = {}
+        for r in reported:
+            c = counts.setdefault(r["label"], {"n": 0, "max": 0.0})
+            c["n"] += 1
+            c["max"] = max(c["max"], r["confidence"])
+        chips = "".join(
+            f'<span class="pt-finding"><b>{label}</b> × {c["n"]} '
+            f'<span class="pt-finding-conf">máx. {c["max"]:.0f}%</span></span>'
+            for label, c in sorted(counts.items(), key=lambda kv: -kv[1]["max"])
+        )
+        st.markdown(f'<div class="pt-findings">Hallazgos: {chips}</div>', unsafe_allow_html=True)
+    else:
+        st.info(
+            f"Ninguna región superó la confianza mínima de {min_conf:.0f}%. "
+            "Revisa las regiones descartadas o baja la confianza mínima en los ajustes.",
+        )
+
+    confs = [r["confidence"] for r in reported]
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Regiones analizadas", len(items))
-    m2.metric("Confianza promedio", f"{sum(confs) / len(confs):.1f}%")
-    m3.metric("Requieren revisión", low, help=f"Regiones con confianza menor a {LOW_CONFIDENCE:.0f}%.")
+    m2.metric("Reportadas", len(reported), help=f"Con confianza ≥ {min_conf:.0f}%.")
+    m3.metric("Confianza promedio", f"{sum(confs) / len(confs):.1f}%" if confs else "—")
     m4.metric("Tipo de parásito", res["parasite"], help=f"Modelo: {SPECIES[res['parasite']]['model']}")
 
     cols = st.columns(3)
-    for r in items:
-        with cols[(r["n"] - 1) % 3].container(border=True):
-            c_img, c_txt = st.columns([1, 1.6], vertical_alignment="center")
-            c_img.image(r["crop"], use_column_width=True)
-            with c_txt:
-                badge = (
-                    '<span class="pt-badge-ok">Confianza alta</span>'
-                    if r["confidence"] >= LOW_CONFIDENCE
-                    else '<span class="pt-badge-warn">Revisar</span>'
-                )
-                st.markdown(
-                    f'<div class="pt-region">Región {r["n"]}</div>'
-                    f'<div class="pt-label">{r["label"]}</div>{badge}',
-                    unsafe_allow_html=True,
-                )
-            st.progress(min(r["confidence"] / 100, 1.0), text=f"Confianza: {r['confidence']:.1f}%")
-            if r["alternatives"]:
-                alts = " · ".join(f"{l} ({p:.1f}%)" for l, p in r["alternatives"])
-                st.markdown(f'<div class="pt-alt">Otras opciones: {alts}</div>', unsafe_allow_html=True)
+    for i, r in enumerate(reported):
+        with cols[i % 3]:
+            result_card(r, min_conf)
 
+    if discarded:
+        with st.expander(f"Regiones descartadas ({len(discarded)}) · confianza menor a {min_conf:.0f}%"):
+            st.caption(
+                "Suelen ser detritus u objetos que el modelo no reconoce con seguridad. "
+                "Revísalas por si alguna es un hallazgo real."
+            )
+            dcols = st.columns(4)
+            for i, r in enumerate(discarded):
+                with dcols[i % 4]:
+                    st.image(r["crop"], use_column_width=True)
+                    st.caption(f"Región {r['n']} · {r['label']} · {r['confidence']:.1f}%")
+
+    annotated = annotate(res["image"], reported)
     st.write("")
     left, right = st.columns([1.5, 1])
     with left:
         st.markdown("**Imagen anotada**")
-        st.image(res["annotated"], use_column_width=True)
+        st.image(annotated, use_column_width=True)
     with right:
         st.markdown("**Resumen**")
         df = pd.DataFrame([
@@ -342,7 +439,7 @@ def show_results(res, img_name, stale):
                 "Región": r["n"],
                 "Clasificación": r["label"],
                 "Confianza (%)": r["confidence"],
-                "Estado": "OK" if r["confidence"] >= LOW_CONFIDENCE else "Revisar",
+                "Estado": "Reportada" if r["confidence"] >= min_conf else "Descartada",
             }
             for r in items
         ])
@@ -350,7 +447,7 @@ def show_results(res, img_name, stale):
 
         base = os.path.splitext(img_name or "muestra")[0]
         st.download_button(
-            "⬇️  Descargar imagen anotada", data=res["annotated"],
+            "⬇️  Descargar imagen anotada", data=annotated,
             file_name=f"parasitech_{base}.png", mime="image/png", use_container_width=True,
         )
         csv = df.assign(Tipo=res["parasite"], Imagen=img_name).to_csv(index=False).encode("utf-8-sig")
@@ -383,7 +480,7 @@ def footer():
 # --------------------------------------------------------------------------- #
 def main():
     st.markdown(CSS, unsafe_allow_html=True)
-    parasite, img_path, img_name, threshold, analyze = sidebar()
+    parasite, img_path, img_name, threshold, analyze, cfg = sidebar()
     header(parasite)
 
     if img_path is None:
@@ -399,19 +496,46 @@ def main():
         return
 
     resized_img = im.resizing_img(*CANVAS_MAX)
+    auto = cfg["mode"] == "Automático"
 
-    st.markdown("**Marca las regiones a analizar**")
-    st.caption(
-        "Pulsa **+ Agregar recuadro**, arrástralo sobre cada estructura y ajusta su tamaño "
-        "desde las esquinas. Puedes marcar varias regiones a la vez."
-    )
-    rects = st_img_label(resized_img, box_color=BOX_COLOR, rects=im.get_resized_rects())
+    if auto:
+        with st.spinner("Buscando estructuras en la imagen…"):
+            im._rects = auto_regions(
+                img_path, threshold, cfg["size_range"], cfg["sensitivity"], cfg["max_regions"]
+            )
+        n = len(im._rects)
+        st.markdown(f"**Se detectaron {n} estructuras candidatas**")
+        if n:
+            st.caption(
+                "Pulsa **Analizar muestra** para clasificarlas. Si quieres, antes puedes "
+                "quitar un recuadro (selecciónalo y pulsa *Quitar seleccionado*), moverlo "
+                "o agregar otro con **+ Agregar recuadro**."
+            )
+        else:
+            st.caption(
+                "No se encontraron estructuras. Prueba con sensibilidad **Alta**, ajusta el "
+                "tamaño de los objetos en *Ajustes de detección* o agrega recuadros a mano."
+            )
+        canvas_key = "auto-" + hashlib.md5(
+            repr((img_path, threshold, cfg["size_range"], cfg["sensitivity"],
+                  cfg["max_regions"])).encode()
+        ).hexdigest()[:12]
+    else:
+        st.markdown("**Marca las regiones a analizar**")
+        st.caption(
+            "Pulsa **+ Agregar recuadro**, arrástralo sobre cada estructura y ajusta su tamaño "
+            "desde las esquinas. Puedes marcar varias regiones a la vez."
+        )
+        canvas_key = "manual-" + hashlib.md5(repr((img_path, threshold)).encode()).hexdigest()[:12]
+
+    initial = im.get_resized_rects()
+    rects = st_img_label(resized_img, box_color=BOX_COLOR, rects=initial, key=canvas_key)
 
     sig = (img_path, threshold, parasite, tuple(rect_to_box(r) for r in rects))
 
     if analyze:
         if not rects:
-            st.warning("Agrega al menos un recuadro sobre la imagen antes de analizar.", icon="✏️")
+            st.warning("No hay regiones para analizar. Agrega al menos un recuadro.", icon="✏️")
         else:
             try:
                 with st.spinner(f"Cargando el modelo de {parasite}…"):
@@ -426,7 +550,7 @@ def main():
     res = st.session_state.get("results")
     if res and res["sig"][0] == img_path:
         st.divider()
-        show_results(res, img_name, stale=res["sig"] != sig)
+        show_results(res, img_name, stale=res["sig"] != sig, min_conf=cfg["min_conf"])
 
     footer()
 

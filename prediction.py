@@ -52,6 +52,26 @@ def predictParasite(img, parasite):
     return pred_class, pred_idx, outputs
 
 
+def predict_batch(imgs, parasite, k=3):
+    """Clasifica varias imágenes de una vez. Devuelve una lista de top-k por imagen."""
+    if not imgs:
+        return []
+    learn = get_learner(parasite)
+    vocab = list(learn.dls.vocab)
+    try:
+        dl = learn.dls.test_dl(list(imgs), bs=len(imgs), num_workers=0)
+        with learn.no_bar():
+            probs, _ = learn.get_preds(dl=dl)
+    except Exception as e:  # respaldo: una por una
+        print(f"[ParasiTech] Lote falló ({e}); clasificando una por una")
+        return [predict_topk(img, parasite, k) for img in imgs]
+    out = []
+    for row in probs:
+        top = row.topk(min(k, len(vocab)))
+        out.append([(str(vocab[int(i)]), float(p)) for p, i in zip(top.values, top.indices)])
+    return out
+
+
 def predict_topk(img, parasite, k=3):
     """Devuelve las k clases más probables como [(clase, probabilidad 0-1), ...]."""
     learn = get_learner(parasite)

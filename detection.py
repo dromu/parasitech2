@@ -21,19 +21,25 @@ class Candidate:
 
 
 def _field_mask(gray):
-    """Máscara del campo iluminado del microscopio (excluye el borde negro)."""
-    _, m = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    """Zona útil de la imagen: todo lo que no es el negro del recorte del ocular."""
+    m = np.where(gray > 8, 255, 0).astype(np.uint8)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
     n, labels, stats, _ = cv2.connectedComponentsWithStats(m)
     if n <= 1:
         return np.full_like(gray, 255)
     big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     mask = np.where(labels == big, 255, 0).astype(np.uint8)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    filled = np.zeros_like(mask)
-    cv2.drawContours(filled, contours, -1, 255, cv2.FILLED)
     # Se erosiona para ignorar el borde del campo, que genera falsos objetos
-    return cv2.erode(filled, np.ones((25, 25), np.uint8))
+    return cv2.erode(mask, np.ones((25, 25), np.uint8))
+
+
+def _contained(a, b):
+    """Fracción del recuadro más pequeño que queda dentro del otro."""
+    x0, y0 = max(a[0], b[0]), max(a[1], b[1])
+    x1, y1 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0, x1 - x0) * max(0, y1 - y0)
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return inter / small if small else 0.0
 
 
 def _iou(a, b):
@@ -80,7 +86,7 @@ def detect_candidates(
         return []
 
     # Varios umbrales de contraste: un huevo pegado a detritus se separa en alguno
-    levels = sorted({max(float(np.percentile(vals, p)), 5.0) for p in (82, 88, 92, 95, 97, 98.5)})
+    levels = sorted({max(float(np.percentile(vals, p)), 5.0) for p in (70, 76, 82, 88, 92, 95, 97, 98.5)})
     min_iou = 0.86 - 0.14 * sensitivity
     min_solidity = 0.93 - 0.13 * sensitivity
     kernel = np.ones((3, 3), np.uint8)
@@ -165,7 +171,7 @@ def detect_candidates(
     found.sort(key=lambda c: c.score, reverse=True)
     kept = []
     for cand in found:
-        if all(_iou(cand.box, k.box) < 0.3 for k in kept):
+        if all(_iou(cand.box, k.box) < 0.3 and _contained(cand.box, k.box) < 0.7 for k in kept):
             kept.append(cand)
         if len(kept) >= max_regions:
             break

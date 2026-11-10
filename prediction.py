@@ -50,3 +50,12 @@ def get_learner(parasite: str):
 def predictParasite(img, parasite):
     pred_class, pred_idx, outputs = get_learner(parasite).predict(img)
     return pred_class, pred_idx, outputs
+
+
+def predict_topk(img, parasite, k=3):
+    """Devuelve las k clases más probables como [(clase, probabilidad 0-1), ...]."""
+    learn = get_learner(parasite)
+    _, _, probs = learn.predict(img)
+    vocab = list(learn.dls.vocab)
+    top = probs.topk(min(k, len(vocab)))
+    return [(str(vocab[int(i)]), float(p)) for p, i in zip(top.values, top.indices)]

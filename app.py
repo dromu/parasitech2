@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from streamlit_img_label import st_img_label
 from streamlit_img_label.manage import ImageManager, ImageDirManager
-from prediction import predictParasite
+from prediction import predictParasite, get_learner
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import shutil
@@ -52,7 +52,10 @@ def display_predictions(preview_imgs, parasite, resized_img, coord):
             draw = ImageDraw.Draw(resized_img)
             draw.rectangle(box_coords, outline="blue", width=3)
 
-            font = ImageFont.truetype("DejaVuSans.ttf", 15) if True else ImageFont.load_default()
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", 15)
+            except OSError:
+                font = ImageFont.load_default()
             x_center = ((box_coords[0] + box_coords[2]) // 2)-30
             draw.text((x_center, box_coords[3]), pred_class, fill="black", font=font)
             draw.text((x_center, box_coords[3] + 20), f"{max_prob}%", fill="black", font=font)
@@ -114,6 +117,12 @@ def run():
     rects = st_img_label(resized_img, box_color="blue", rects=im.get_resized_rects())
 
     if st.sidebar.button("Predecir") and rects:
+        try:
+            get_learner(parasite)
+        except Exception as e:
+            st.error(f"El modelo de {parasite} no está disponible en este momento.")
+            print(f"[ParasiTech] Error cargando modelo {parasite}: {e}")
+            return
         coord = calculate_rect_coords(rects)
         preview_imgs = im.init_annotation(rects)
         display_predictions(preview_imgs, parasite, resized_img, coord)

@@ -79,6 +79,9 @@ CSS = """
 }
 .pt-badge-ok {background: #E6F4EA; color: #1E6B35;}
 .pt-badge-warn {background: #FFF4E5; color: #8A4B00;}
+.pt-badge-off {display: inline-block; padding: .1rem .55rem; border-radius: 999px;
+    font-size: .75rem; font-weight: 700; background: #EEEEEE; color: #666;}
+.pt-removed {text-decoration: line-through; color: #9a93a0;}
 .pt-alt {font-size: .85rem; color: #5d5566; margin: .1rem 0;}
 .pt-findings {font-size: .95rem; margin: .2rem 0 1rem 0; color: #3b3342;}
 .pt-finding {
@@ -314,25 +317,38 @@ def run_analysis(im, rects, parasite, resized_img, sig):
     }
 
 
-def result_card(r, min_conf):
+def result_card(r, min_conf, rid):
+    removed = st.session_state.get(f"rm_{rid}_{r['n']}", False)
     with st.container(border=True):
         c_img, c_txt = st.columns([1, 1.6], vertical_alignment="center")
         c_img.image(r["crop"], use_column_width=True)
         with c_txt:
-            badge = (
-                '<span class="pt-badge-ok">Confianza alta</span>'
-                if r["confidence"] >= min_conf
-                else '<span class="pt-badge-warn">Incluida manualmente</span>'
-            )
+            if removed:
+                badge = '<span class="pt-badge-off">Quitada del reporte</span>'
+            elif r["confidence"] >= min_conf:
+                badge = '<span class="pt-badge-ok">Confianza alta</span>'
+            else:
+                badge = '<span class="pt-badge-warn">Incluida manualmente</span>'
+            label_cls = "pt-label pt-removed" if removed else "pt-label"
             st.markdown(
                 f'<div class="pt-region">Región {r["n"]}</div>'
-                f'<div class="pt-label">{html_name(r["label"])}</div>{badge}',
+                f'<div class="{label_cls}">{html_name(r["label"])}</div>{badge}',
                 unsafe_allow_html=True,
             )
         st.progress(min(r["confidence"] / 100, 1.0), text=f"Confianza: {r['confidence']:.1f} %")
         if r["alternatives"]:
             alts = " · ".join(f"{html_name(l)} ({p:.1f} %)" for l, p in r["alternatives"])
             st.markdown(f'<div class="pt-alt">Otras opciones: {alts}</div>', unsafe_allow_html=True)
+        if r["confidence"] >= min_conf:
+            st.checkbox("Quitar del reporte", key=f"rm_{rid}_{r['n']}",
+                        help="Excluye esta región de la imagen de salida y del CSV.")
+        else:
+            st.button("Devolver a descartadas", key=f"undo_{rid}_{r['n']}",
+                      on_click=_set_manual, args=(rid, r["n"], False))
+
+
+def _set_manual(rid, n, value):
+    st.session_state[f"man_{rid}_{n}"] = value
 
 
 def get_report(res, included, img_path, min_conf):
@@ -349,8 +365,9 @@ def show_results(res, img_name, img_path, stale, min_conf):
     rid = res["id"]
     confident = [r for r in items if r["confidence"] >= min_conf]
     discarded = [r for r in items if r["confidence"] < min_conf]
-    manual = [r for r in discarded if st.session_state.get(f"inc_{rid}_{r['n']}", False)]
-    included = sorted(confident + manual, key=lambda r: r["n"])
+    manual = [r for r in discarded if st.session_state.get(f"man_{rid}_{r['n']}", False)]
+    shown = sorted(confident + manual, key=lambda r: r["n"])
+    included = [r for r in shown if not st.session_state.get(f"rm_{rid}_{r['n']}", False)]
 
     st.subheader("Resultados")
     if stale:
@@ -384,32 +401,36 @@ def show_results(res, img_name, img_path, stale, min_conf):
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Regiones analizadas", len(items))
     m2.metric("En el reporte", len(included),
-              help=f"Confianza ≥ {min_conf:.0f} % más las incluidas manualmente.")
+              help=f"Confianza ≥ {min_conf:.0f} % más las incluidas manualmente, "
+                   "menos las quitadas.")
     m3.metric("Confianza promedio", f"{sum(confs) / len(confs):.1f} %" if confs else "—")
     m4.metric("Tipo de parásito", res["parasite"], help=f"Modelo: {SPECIES[res['parasite']]['model']}")
 
     cols = st.columns(3)
-    for i, r in enumerate(included):
+    for i, r in enumerate(shown):
         with cols[i % 3]:
-            result_card(r, min_conf)
+            result_card(r, min_conf, rid)
 
-    if discarded:
-        label = f"Regiones descartadas ({len(discarded)}) · confianza menor a {min_conf:.0f} %"
-        with st.expander(label, expanded=bool(manual)):
+    pending = [r for r in discarded if r not in manual]
+    if pending:
+        label = f"Regiones descartadas ({len(pending)}) · confianza menor a {min_conf:.0f} %"
+        with st.expander(label, expanded=False):
             st.caption(
                 "Suelen ser detritus u objetos que el modelo no reconoce con seguridad. "
-                "Marca **Incluir** en las que consideres hallazgos reales: se agregan a la "
+                "Pulsa **Incluir en el reporte** en las que consideres hallazgos reales: se agregan a la "
                 "imagen de salida y al CSV."
             )
             dcols = st.columns(4)
-            for i, r in enumerate(discarded):
+            for i, r in enumerate(pending):
                 with dcols[i % 4].container(border=True):
                     st.image(r["crop"], use_column_width=True)
                     st.markdown(
                         f'<div class="pt-alt">Región {r["n"]} · {html_name(r["label"])} · '
                         f'{r["confidence"]:.1f} %</div>', unsafe_allow_html=True,
                     )
-                    st.checkbox("Incluir", key=f"inc_{rid}_{r['n']}")
+                    st.button("➕ Incluir en el reporte", key=f"inc_{rid}_{r['n']}",
+                              on_click=_set_manual, args=(rid, r["n"], True),
+                              use_container_width=True)
 
     with st.spinner("Generando imagen de salida…"):
         preview, full = get_report(res, included, img_path, min_conf)

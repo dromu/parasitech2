@@ -11,7 +11,8 @@ from PIL import Image, ImageOps
 from contorCircle import segment_field
 from detection import detect_candidates
 from prediction import get_learner, predict_batch
-from report import DISCLAIMER, encode, html_name, plain_name, render_report, sci_name
+from report import (DISCLAIMER, HELMINTOS, PROTOZOOS, encode, html_name, plain_name,
+                    render_report, sci_name)
 from streamlit_img_label import st_img_label
 from streamlit_img_label.manage import ImageManager
 
@@ -90,6 +91,20 @@ CSS = """
     border-radius: 999px; background: #F4EEF7; border: 1px solid #E2D6E8; color: #3b1d40;
 }
 .pt-finding-conf {font-size: .78rem; color: #7a6c83; margin-left: .25rem;}
+.pt-species {
+    border: 1px solid #E7E0EC; border-radius: 14px; padding: 1rem 1.2rem .6rem 1.2rem;
+    background: #FBF9FC; height: 100%;
+}
+.pt-species-head {display: flex; justify-content: space-between; align-items: center;
+    font-weight: 700; font-size: 1.08rem; color: #3b1d40;}
+.pt-species-count {font-size: .75rem; font-weight: 700; background: #5B2A5E; color: #fff;
+    padding: .15rem .6rem; border-radius: 999px;}
+.pt-species-sub {font-size: .85rem; color: #7a6c83; margin: .15rem 0 .5rem 0;}
+.pt-species ol {columns: 2; column-gap: 1.5rem; margin: 0 0 .4rem 1.1rem; padding: 0;}
+.pt-species li, .pt-side-list li {margin: .15rem 0; font-size: .93rem; color: #2a2230;
+    break-inside: avoid;}
+.pt-species i, .pt-side-list i {font-family: Georgia, "Times New Roman", serif;}
+.pt-side-list {margin: 0 0 0 1.1rem; padding: 0;}
 .pt-disclaimer {
     display: flex; gap: .7rem; align-items: flex-start; background: #FFF8E6;
     border: 1px solid #F3D58A; border-left: 4px solid #D99A00; border-radius: 10px;
@@ -176,6 +191,13 @@ def sidebar():
         label_visibility="collapsed",
     )
 
+    names = HELMINTOS if parasite == "Helminto" else PROTOZOOS
+    with st.sidebar.expander(f"📚 {len(names)} especies de {parasite.lower()}s que reconoce"):
+        st.markdown(
+            "<ol class='pt-side-list'>" + "".join(f"<li>{html_name(n)}</li>" for n in names)
+            + "</ol>", unsafe_allow_html=True,
+        )
+
     st.sidebar.markdown("##### 2 · Imagen de la muestra")
     source = st.sidebar.radio(
         "Origen", ["Subir imagen", "Galería de ejemplos"], label_visibility="collapsed"
@@ -254,10 +276,32 @@ def header(parasite):
     )
 
 
+def species_section():
+    """Especies que reconocen los modelos de ParasiTech."""
+    st.markdown("#### Especies que reconoce")
+    groups = [
+        ("🪱", "Helmintos", HELMINTOS, "huevos"),
+        ("🦠", "Protozoos", PROTOZOOS, "quistes y trofozoítos"),
+    ]
+    cols = st.columns(2)
+    for col, (icon, title, names, what) in zip(cols, groups):
+        items = "".join(f"<li>{html_name(n)}</li>" for n in names)
+        col.markdown(
+            f'''<div class="pt-species">
+                 <div class="pt-species-head"><span>{icon} {title}</span>
+                   <span class="pt-species-count">{len(names)} especies</span></div>
+                 <div class="pt-species-sub">Identificación de {what}</div>
+                 <ol>{items}</ol>
+               </div>''',
+            unsafe_allow_html=True,
+        )
+
+
 def empty_state():
     steps = [
-        ("1", "Elige el tipo", "Selecciona si buscas <b>protozoos</b> o <b>helmintos</b>; "
-                               "cada uno usa un modelo especializado."),
+        ("1", "Elige el tipo", f"Selecciona si buscas <b>helmintos</b> ({len(HELMINTOS)} especies) "
+                               f"o <b>protozoos</b> ({len(PROTOZOOS)} especies); cada grupo usa "
+                               "un modelo especializado."),
         ("2", "Carga la imagen", "Sube una foto del microscopio o prueba con una imagen "
                                  "de la <b>galería de ejemplos</b>."),
         ("3", "Analiza", "Pulsa <b>Analizar muestra</b>: la app detecta las estructuras y "
@@ -271,6 +315,8 @@ def empty_state():
         )
     st.write("")
     st.info("👈 Comienza cargando una imagen desde el panel lateral.")
+    st.write("")
+    species_section()
 
 
 def clamp_rects(rects, width, height):

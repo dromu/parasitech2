@@ -81,6 +81,41 @@ _SCI = {
     "cystoisospora": ("Cystoisospora belli", ""),
     "isospora": ("Cystoisospora belli", ""),
 }
+_SCI.update({
+    # Nombres exactos de las clases de los modelos
+    "capillaria": ("Capillaria philippinensis", ""),
+    "capillariaphilippinensis": ("Capillaria philippinensis", ""),
+    "fasciolopsis": ("Fasciolopsis buski", ""),
+    "fasciolopsisbuski": ("Fasciolopsis buski", ""),
+    "hookworm": ("", "Uncinarias (Ancylostomatidae)"),
+    "hookwormegg": ("", "Uncinarias (Ancylostomatidae)"),
+    "opisthorchis": ("Opisthorchis viverrini", ""),
+    "opisthorchisviverrine": ("Opisthorchis viverrini", ""),
+    "opisthorchisviverrini": ("Opisthorchis viverrini", ""),
+    "paragonimus": ("Paragonimus", "spp."),
+    "paragonimusspp": ("Paragonimus", "spp."),
+    "taeniaspp": ("Taenia", "spp."),
+    "taeniasppegg": ("Taenia", "spp."),
+    "taeniaegg": ("Taenia", "spp."),
+    "chillomastix": ("Chilomastix mesnili", ""),
+    "chilomastixmesnili": ("Chilomastix mesnili", ""),
+    "entamoebahartmani": ("Entamoeba hartmanni", ""),
+    "hartmani": ("Entamoeba hartmanni", ""),
+})
+_SCI["taenia"] = ("Taenia", "spp.")
+_SCI["tenia"] = ("Taenia", "spp.")
+
+# Especies que reconoce ParasiTech (en el orden de los modelos)
+HELMINTOS = [
+    "Ascaris lumbricoides", "Capillaria philippinensis", "Enterobius vermicularis",
+    "Fasciolopsis buski", "Hookworm egg", "Hymenolepis diminuta", "Hymenolepis nana",
+    "Opisthorchis viverrine", "Paragonimus spp", "Taenia spp. egg", "Trichuris trichiura",
+]
+PROTOZOOS = [
+    "Blastocystis", "Chillomastix", "Endolimax nana", "Entamoeba Coli",
+    "Entamoeba Hartmani", "Giardia", "Iodamoeba",
+]
+
 _NON_PARASITE = {
     "negativo", "negative", "artefacto", "artefactos", "artifact", "artifacts", "fondo",
     "background", "detritus", "nada", "none", "otro", "otros", "other", "noparasito",
@@ -95,6 +130,9 @@ def _norm(label: str) -> str:
 
 def sci_name(label: str):
     """(parte en cursiva, sufijo en redonda, es_parásito) para una clase del modelo."""
+    # Clases numéricas (category_id) del modelo de helmintos
+    if str(label).strip().isdigit() and int(label) < len(HELMINTOS):
+        label = HELMINTOS[int(label)]
     key = _norm(label)
     if key in _NON_PARASITE:
         return "", str(label).replace("_", " ").strip().capitalize(), False
@@ -125,6 +163,8 @@ def plain_name(label: str) -> str:
 def html_name(label: str) -> str:
     it, suf, is_par = sci_name(label)
     if not is_par:
+        return suf
+    if not it:
         return suf
     return f"<i>{it}</i>" + (f" {suf}" if suf else "")
 

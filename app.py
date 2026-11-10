@@ -24,7 +24,7 @@ LOGO = "staticImages/parasitechLogo.png"
 
 MAX_PROCESS_SIDE = 4096      # lado máximo de la imagen (se conserva la resolución original)
 CANVAS_MAX = (720, 960)      # alto y ancho máximos del lienzo de anotación
-MIN_CONF = 95.0              # confianza mínima para reportar un hallazgo
+DEFAULT_CONF = 95            # confianza mínima por defecto para reportar un hallazgo
 BOX_COLOR = "#E0115F"
 PREVIEW_SIDE = 1600          # vista previa en pantalla; la descarga va a resolución completa
 BATCH_SIZE = 4               # regiones por lote al clasificar
@@ -204,7 +204,11 @@ def sidebar():
             help="Diámetro aproximado de los huevos o quistes que se buscan.",
         )
         max_regions = st.slider("Máximo de regiones", 5, 40, 20, disabled=mode != "Automático")
-    st.sidebar.caption(f"Se reportan los hallazgos con confianza ≥ {MIN_CONF:.0f} %.")
+    min_conf = st.sidebar.slider(
+        "Confianza mínima para reportar", 50, 100, DEFAULT_CONF, step=1, format="%d %%",
+        help="Solo se reportan las regiones con esta confianza o más. Las demás quedan "
+             "como descartadas y se pueden incluir manualmente.",
+    )
 
     analyze = st.sidebar.button(
         "🔍  Analizar muestra", type="primary", use_container_width=True,
@@ -219,7 +223,7 @@ def sidebar():
     )
     settings = {
         "mode": mode, "sensitivity": SENSITIVITY[sens], "size_range": tuple(size_range),
-        "max_regions": max_regions,
+        "max_regions": max_regions, "min_conf": float(min_conf),
     }
     return parasite, img_path, img_name, analyze, settings
 
@@ -310,14 +314,14 @@ def run_analysis(im, rects, parasite, resized_img, sig):
     }
 
 
-def result_card(r):
+def result_card(r, min_conf):
     with st.container(border=True):
         c_img, c_txt = st.columns([1, 1.6], vertical_alignment="center")
         c_img.image(r["crop"], use_column_width=True)
         with c_txt:
             badge = (
                 '<span class="pt-badge-ok">Confianza alta</span>'
-                if r["confidence"] >= MIN_CONF
+                if r["confidence"] >= min_conf
                 else '<span class="pt-badge-warn">Incluida manualmente</span>'
             )
             st.markdown(
@@ -331,20 +335,20 @@ def result_card(r):
             st.markdown(f'<div class="pt-alt">Otras opciones: {alts}</div>', unsafe_allow_html=True)
 
 
-def get_report(res, included, img_path):
+def get_report(res, included, img_path, min_conf):
     """Imagen de salida (vista previa + descarga), recalculada solo si cambia la selección."""
-    key = tuple(r["n"] for r in included)
+    key = (min_conf, tuple(r["n"] for r in included))
     if key not in res["reports"]:
-        full = render_report(processed_image(img_path), included, res["parasite"], MIN_CONF)
+        full = render_report(processed_image(img_path), included, res["parasite"], min_conf)
         res["reports"] = {key: (encode(full, max_side=PREVIEW_SIDE), encode(full))}
     return res["reports"][key]
 
 
-def show_results(res, img_name, img_path, stale):
+def show_results(res, img_name, img_path, stale, min_conf):
     items = res["items"]
     rid = res["id"]
-    confident = [r for r in items if r["confidence"] >= MIN_CONF]
-    discarded = [r for r in items if r["confidence"] < MIN_CONF]
+    confident = [r for r in items if r["confidence"] >= min_conf]
+    discarded = [r for r in items if r["confidence"] < min_conf]
     manual = [r for r in discarded if st.session_state.get(f"inc_{rid}_{r['n']}", False)]
     included = sorted(confident + manual, key=lambda r: r["n"])
 
@@ -372,7 +376,7 @@ def show_results(res, img_name, img_path, stale):
         st.markdown(f'<div class="pt-findings">Hallazgos: {chips}</div>', unsafe_allow_html=True)
     else:
         st.info(
-            f"Ninguna región alcanzó una confianza de {MIN_CONF:.0f} %. Revisa las regiones "
+            f"Ninguna región alcanzó una confianza de {min_conf:.0f} %. Revisa las regiones "
             "descartadas: puedes incluir manualmente las que consideres hallazgos reales.",
         )
 
@@ -380,17 +384,17 @@ def show_results(res, img_name, img_path, stale):
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Regiones analizadas", len(items))
     m2.metric("En el reporte", len(included),
-              help=f"Confianza ≥ {MIN_CONF:.0f} % más las incluidas manualmente.")
+              help=f"Confianza ≥ {min_conf:.0f} % más las incluidas manualmente.")
     m3.metric("Confianza promedio", f"{sum(confs) / len(confs):.1f} %" if confs else "—")
     m4.metric("Tipo de parásito", res["parasite"], help=f"Modelo: {SPECIES[res['parasite']]['model']}")
 
     cols = st.columns(3)
     for i, r in enumerate(included):
         with cols[i % 3]:
-            result_card(r)
+            result_card(r, min_conf)
 
     if discarded:
-        label = f"Regiones descartadas ({len(discarded)}) · confianza menor a {MIN_CONF:.0f} %"
+        label = f"Regiones descartadas ({len(discarded)}) · confianza menor a {min_conf:.0f} %"
         with st.expander(label, expanded=bool(manual)):
             st.caption(
                 "Suelen ser detritus u objetos que el modelo no reconoce con seguridad. "
@@ -408,7 +412,7 @@ def show_results(res, img_name, img_path, stale):
                     st.checkbox("Incluir", key=f"inc_{rid}_{r['n']}")
 
     with st.spinner("Generando imagen de salida…"):
-        preview, full = get_report(res, included, img_path)
+        preview, full = get_report(res, included, img_path, min_conf)
 
     st.write("")
     left, right = st.columns([1.5, 1])
@@ -422,7 +426,7 @@ def show_results(res, img_name, img_path, stale):
                 "Región": r["n"],
                 "Clasificación": plain_name(r["label"]),
                 "Confianza (%)": r["confidence"],
-                "Inclusión": "Automática" if r["confidence"] >= MIN_CONF else "Manual",
+                "Inclusión": "Automática" if r["confidence"] >= min_conf else "Manual",
             }
             for r in included
         ], columns=["Región", "Clasificación", "Confianza (%)", "Inclusión"])
@@ -534,7 +538,7 @@ def main():
     res = st.session_state.get("results")
     if res and res["sig"][0] == img_path:
         st.divider()
-        show_results(res, img_name, img_path, stale=res["sig"] != sig)
+        show_results(res, img_name, img_path, stale=res["sig"] != sig, min_conf=cfg["min_conf"])
 
     footer()
 

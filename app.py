@@ -11,7 +11,7 @@ from PIL import Image, ImageOps
 from contorCircle import segment_field
 from detection import detect_candidates
 from prediction import get_learner, predict_batch
-from report import encode, html_name, plain_name, render_report, sci_name
+from report import DISCLAIMER, encode, html_name, plain_name, render_report, sci_name
 from streamlit_img_label import st_img_label
 from streamlit_img_label.manage import ImageManager
 
@@ -23,7 +23,7 @@ GALLERY_DIR = "imgExamples"
 LOGO = "staticImages/parasitechLogo.png"
 
 MAX_PROCESS_SIDE = 4096      # lado máximo de la imagen (se conserva la resolución original)
-CANVAS_MAX = (720, 960)      # alto y ancho máximos del lienzo de anotación
+CANVAS_SIZES = {"Mediana": 720, "Grande": 960, "Muy grande": 1200}  # lado máx. del editor (px)
 DEFAULT_CONF = 95            # confianza mínima por defecto para reportar un hallazgo
 BOX_COLOR = "#E0115F"
 PREVIEW_SIDE = 1600          # vista previa en pantalla; la descarga va a resolución completa
@@ -32,8 +32,8 @@ SENSITIVITY = {"Baja": 0.2, "Media": 0.5, "Alta": 0.8}
 
 SPECIES = {
     # size: diámetro típico del objeto como % del lado de la imagen (mín, máx)
-    "Protozoo": {"model": "EfficientNet-B5", "icon": "🦠", "size": (1.2, 10.0)},
-    "Helminto": {"model": "ViT-Small · patch16 · 224", "icon": "🪱", "size": (3.0, 30.0)},
+    "Protozoo": {"desc": "Quistes y trofozoítos", "icon": "🦠", "size": (1.2, 10.0)},
+    "Helminto": {"desc": "Huevos y larvas", "icon": "🪱", "size": (3.0, 30.0)},
 }
 
 st.set_page_config(
@@ -46,7 +46,8 @@ st.set_page_config(
 CSS = """
 <style>
 #MainMenu, footer {visibility: hidden;}
-.block-container {padding-top: 2rem; padding-bottom: 1rem;}
+.block-container {padding-top: 2rem; padding-bottom: 1rem; padding-left: 2.5rem;
+    padding-right: 2.5rem; max-width: 100%;}
 [data-testid="stSidebar"] [data-testid="stImage"] {margin-bottom: -0.5rem;}
 .pt-hero {
     background: linear-gradient(120deg, #5B2A5E 0%, #7A3E7E 55%, #9C5A9F 100%);
@@ -89,6 +90,12 @@ CSS = """
     border-radius: 999px; background: #F4EEF7; border: 1px solid #E2D6E8; color: #3b1d40;
 }
 .pt-finding-conf {font-size: .78rem; color: #7a6c83; margin-left: .25rem;}
+.pt-disclaimer {
+    display: flex; gap: .7rem; align-items: flex-start; background: #FFF8E6;
+    border: 1px solid #F3D58A; border-left: 4px solid #D99A00; border-radius: 10px;
+    padding: .75rem 1rem; margin: .4rem 0 1rem 0; font-size: .9rem; color: #5A4300;
+}
+.pt-disclaimer b {color: #4A3600;}
 .pt-footer {
     margin-top: 2.5rem; padding: 1.1rem 0 .4rem 0; border-top: 1px solid #E7E0EC;
     text-align: center; font-size: .82rem; color: #6b6275; line-height: 1.6;
@@ -164,7 +171,7 @@ def sidebar():
     parasite = st.sidebar.radio(
         "Tipo de parásito",
         list(SPECIES),
-        captions=[SPECIES[s]["model"] for s in SPECIES],
+        captions=[SPECIES[s]["desc"] for s in SPECIES],
         horizontal=True,
         label_visibility="collapsed",
     )
@@ -240,7 +247,7 @@ def header(parasite):
           <p>Detecta automáticamente huevos y quistes en la imagen del microscopio y
              obtén su clasificación con el nivel de confianza.</p>
           <span class="pt-chip">{info['icon']} {parasite}</span>
-          <span class="pt-chip">🧠 {info['model']}</span>
+          <span class="pt-chip">🔬 {info['desc']}</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -404,7 +411,7 @@ def show_results(res, img_name, img_path, stale, min_conf):
               help=f"Confianza ≥ {min_conf:.0f} % más las incluidas manualmente, "
                    "menos las quitadas.")
     m3.metric("Confianza promedio", f"{sum(confs) / len(confs):.1f} %" if confs else "—")
-    m4.metric("Tipo de parásito", res["parasite"], help=f"Modelo: {SPECIES[res['parasite']]['model']}")
+    m4.metric("Tipo de parásito", res["parasite"])
 
     cols = st.columns(3)
     for i, r in enumerate(shown):
@@ -465,6 +472,22 @@ def show_results(res, img_name, img_path, stale, min_conf):
         )
 
 
+def same_regions(a, b, tol):
+    """Compara dos firmas de análisis con tolerancia en píxeles (redondeos del editor)."""
+    if a[:2] != b[:2] or len(a[2]) != len(b[2]):
+        return False
+    return all(abs(x - y) <= tol for ba, bb in zip(a[2], b[2]) for x, y in zip(ba, bb))
+
+
+def disclaimer():
+    st.markdown(
+        '<div class="pt-disclaimer"><span>⚠️</span><div><b>Herramienta de apoyo.</b> '
+        f'{DISCLAIMER} No reemplaza el examen microscópico ni el criterio del profesional '
+        'de laboratorio.</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def footer():
     year = date.today().year
     st.markdown(
@@ -490,6 +513,7 @@ def main():
     st.markdown(CSS, unsafe_allow_html=True)
     parasite, img_path, img_name, analyze, cfg = sidebar()
     header(parasite)
+    disclaimer()
 
     if img_path is None:
         empty_state()
@@ -503,10 +527,20 @@ def main():
         footer()
         return
 
-    resized_img = im.resizing_img(*CANVAS_MAX)
+    c_info, c_size = st.columns([3, 2], vertical_alignment="center")
+    with c_size:
+        size_name = st.radio(
+            "Tamaño de la imagen", list(CANVAS_SIZES), index=1, horizontal=True,
+            key="canvas_size",
+        )
+    with c_info:
+        if load_field(img_path)[1]:
+            st.caption("🔬 Se detectó el campo del ocular y se eliminó automáticamente "
+                       "el área que lo rodea.")
+    side = CANVAS_SIZES[size_name]
+    resized_img = im.resizing_img(side, side)
+    rw, rh = im._img.width / resized_img.width, im._img.height / resized_img.height
     auto = cfg["mode"] == "Automático"
-    if load_field(img_path)[1]:
-        st.caption("🔬 Se detectó el campo del ocular y se eliminó automáticamente el área que lo rodea.")
 
     if auto:
         with st.spinner("Buscando estructuras en la imagen…"):
@@ -527,7 +561,8 @@ def main():
                 "tamaño de los objetos en *Ajustes de detección* o agrega recuadros a mano."
             )
         canvas_key = "auto-" + hashlib.md5(
-            repr((img_path, cfg["size_range"], cfg["sensitivity"], cfg["max_regions"])).encode()
+            repr((img_path, side, cfg["size_range"], cfg["sensitivity"],
+                  cfg["max_regions"])).encode()
         ).hexdigest()[:12]
     else:
         st.markdown("**Marca las regiones a analizar**")
@@ -535,12 +570,15 @@ def main():
             "Pulsa **+ Agregar recuadro**, arrástralo sobre cada estructura y ajusta su tamaño "
             "desde las esquinas. Puedes marcar varias regiones a la vez."
         )
-        canvas_key = "manual-" + hashlib.md5(img_path.encode()).hexdigest()[:12]
+        canvas_key = "manual-" + hashlib.md5(f"{img_path}|{side}".encode()).hexdigest()[:12]
 
     initial = im.get_resized_rects()
     rects = st_img_label(resized_img, box_color=BOX_COLOR, rects=initial, key=canvas_key)
 
-    sig = (img_path, parasite, tuple(rect_to_box(r) for r in rects))
+    # Firma en coordenadas de la imagen original (no cambia al cambiar el tamaño del editor)
+    sig = (img_path, parasite, tuple(
+        tuple(int(v * f) for v, f in zip(rect_to_box(r), (rw, rh, rw, rh))) for r in rects
+    ))
 
     if analyze:
         if not rects:
@@ -559,7 +597,9 @@ def main():
     res = st.session_state.get("results")
     if res and res["sig"][0] == img_path:
         st.divider()
-        show_results(res, img_name, img_path, stale=res["sig"] != sig, min_conf=cfg["min_conf"])
+        tol = 0.01 * max(im._img.size)
+        show_results(res, img_name, img_path, stale=not same_regions(res["sig"], sig, tol),
+                     min_conf=cfg["min_conf"])
 
     footer()
 

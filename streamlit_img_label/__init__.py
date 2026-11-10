@@ -1,3 +1,5 @@
+import base64
+import io
 import os
 import streamlit.components.v1 as components
 import numpy as np
@@ -41,8 +43,11 @@ def st_img_label(resized_img, box_color="blue", rects=[], key=None):
     canvasWidth = resized_img.width
     canvasHeight = resized_img.height
 
-    # Translates image to a list for passing to Javascript
-    imageData = np.array(resized_img.convert("RGBA")).flatten().tolist()
+    # La imagen viaja al navegador como JPEG en base64 (data URI): ~100 veces más
+    # liviano que la lista de píxeles RGBA original.
+    buf = io.BytesIO()
+    resized_img.convert("RGB").save(buf, format="JPEG", quality=90)
+    imageData = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"

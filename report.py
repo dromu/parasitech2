@@ -12,6 +12,8 @@ BAND_BG = (0, 0, 0)
 TEXT = (255, 255, 255)
 MUTED = (170, 170, 170)
 WATERMARK = "staticImages/parasitechWatermark.png"
+DISCLAIMER = ("Resultado generado con inteligencia artificial como apoyo al diagnóstico. "
+              "Puede contener errores y debe ser confirmado por personal experto.")
 
 # --------------------------------------------------------------------------- #
 # Nombres científicos
@@ -247,7 +249,10 @@ def render_report(image: Image.Image, items, parasite: str, min_conf: float) -> 
 
     head_h = int(ls * 1.6)
     body_h = max(1, len(lines)) * line_h
-    band_h = pad_y + head_h + int(ls * 0.5) + body_h + pad_y
+    disc_font = L["small"]
+    disc_lines = _wrap(tmp, "⚠ " + DISCLAIMER, disc_font, max_w)
+    disc_h = int(ls * 0.6) + len(disc_lines) * int(ls * 1.25)
+    band_h = pad_y + head_h + int(ls * 0.5) + body_h + disc_h + pad_y
     out = Image.new("RGB", (W, H + band_h), BAND_BG)
     out.paste(img, (0, 0))
     d = ImageDraw.Draw(out)
@@ -280,7 +285,26 @@ def render_report(image: Image.Image, items, parasite: str, min_conf: float) -> 
                 tx += _text_w(d, " " + suf, L["regular"])
             d.text((tx + int(ls * 0.5), cy), conf, fill=MUTED, font=L["small"], anchor="lm")
             x += w_e + gap
+
+    # Aviso: herramienta de apoyo, requiere confirmación por personal experto
+    dy = y + max(1, len(lines)) * line_h + int(ls * 0.6)
+    for i, txt in enumerate(disc_lines):
+        d.text((pad_x, dy + i * int(ls * 1.25)), txt, fill=(150, 150, 150), font=disc_font)
     return out
+
+
+def _wrap(draw, text, font, max_w):
+    words, lines, cur = text.split(), [], ""
+    for w in words:
+        test = f"{cur} {w}".strip()
+        if cur and _text_w(draw, test, font) > max_w:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = test
+    if cur:
+        lines.append(cur)
+    return lines
 
 
 def encode(img: Image.Image, fmt: str = "JPEG", max_side: int | None = None) -> bytes:

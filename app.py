@@ -220,8 +220,9 @@ def sidebar():
 
     st.sidebar.markdown("##### 3 · Análisis")
     mode = st.sidebar.radio(
-        "Modo", ["Automático", "Manual"], horizontal=True, label_visibility="collapsed",
-        captions=["Detecta las estructuras", "Tú marcas las regiones"],
+        "Modo", ["Manual", "Automático"], index=0, horizontal=True,
+        label_visibility="collapsed",
+        captions=["Tú marcas las regiones", "Detecta las estructuras"],
     )
     default_size = SPECIES[parasite]["size"]
     with st.sidebar.expander("🎯 Ajustes de detección", expanded=False):
